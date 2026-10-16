@@ -33,18 +33,19 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# generated ffmpeg binaries (copied on postinstall)
+# generated ffmpeg binaries
 /public/ffmpeg/
 
-# Local desktop binaries & python engine
+# Local desktop binaries & scratch files
 /bin/
 /uploads/
 /outputs/
 /gemini-watermark-and-synthid-remover/
 *.mp4
-*.py
 __pycache__/
 *.bat
+
+# Scratch image & test script files
 user_frame*.png
 corner.png
 boxes_crop.png
@@ -55,3 +56,11 @@ clean_*.png
 full_frame_*.png
 res_*.png
 inpaint_*.png
+check_*.py
+test_*.py
+find_*.py
+save_*.py
+compare_*.py
+draw_*.py
+pixel_*.py
+inspect_*.py
