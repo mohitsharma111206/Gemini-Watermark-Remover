@@ -515,6 +515,12 @@ HTML_CONTENT = """<!DOCTYPE html>
         return;
       }
 
+      // Check Vercel serverless 4.5MB payload limit
+      if (window.location.hostname.includes('vercel.app') && currentFile.size > 4.2 * 1024 * 1024) {
+        alert(`⚠️ Vercel Serverless Limit: Vercel has a hard 4.5MB upload limit (FUNCTION_PAYLOAD_TOO_LARGE).\n\nYour video is ${(currentFile.size / (1024*1024)).toFixed(1)}MB.\n\nTo remove watermarks from videos of ANY size without timeouts or limits, deploy this repo to Render.com (100% free) or run locally!`);
+        return;
+      }
+
       startBtn.setAttribute('disabled', 'true');
       progressCard.classList.remove('hidden');
       percentText.textContent = '0%';
@@ -534,7 +540,13 @@ HTML_CONTENT = """<!DOCTYPE html>
           body: formData
         });
 
-        if (!res.ok) throw new Error(await res.text());
+        if (!res.ok) {
+          const errText = await res.text();
+          if (res.status === 413 || errText.includes('FUNCTION_PAYLOAD_TOO_LARGE')) {
+            throw new Error('Video is too large for Vercel (4.5MB max payload limit). Please deploy to Render.com (unlimited size, 100% free) or run locally.');
+          }
+          throw new Error(errText);
+        }
         const data = await res.json();
         const jobId = data.job_id;
 
@@ -830,4 +842,4 @@ async def get_video(filename: str):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8501))
-    uvicorn.run("video_web_app:app", host="127.0.0.1", port=port, reload=False)
+    uvicorn.run("video_web_app:app", host="0.0.0.0", port=port, reload=False)
