@@ -11,9 +11,11 @@ type Step = 'upload' | 'editor' | 'process' | 'done';
 type FitMode = 'black_borders' | 'blurred_bg' | 'crop';
 type VerticalAlign = 'center' | 'top' | 'bottom';
 type GeminiStrategy = 'merge' | 'clone' | 'corner';
-type RemovalMethod = 'texture_clone' | 'border_cover' | 'inpaint_grain';
+type RemovalMethod = 'border_merge' | 'texture_clone' | 'corner_mask';
 
 interface WatermarkRect {
+  id: string;
+  label: string;
   x: number; // 0 to 1 relative to source video width
   y: number; // 0 to 1 relative to source video height
   w: number;
@@ -31,13 +33,13 @@ interface VideoInfo {
 // ────────────────────────────────────────────────
 // Presets
 // ────────────────────────────────────────────────
-const PRESETS: Record<string, { label: string; icon: string; rect: WatermarkRect }> = {
-  'gemini':        { label: 'Gemini (Bottom-R)', icon: '✨', rect: { x: 0.81, y: 0.88, w: 0.18, h: 0.11 } },
-  'bottom-right':  { label: 'Bottom Right',      icon: '↘', rect: { x: 0.74, y: 0.88, w: 0.25, h: 0.10 } },
-  'bottom-left':   { label: 'Bottom Left',       icon: '↙', rect: { x: 0.01, y: 0.88, w: 0.25, h: 0.10 } },
-  'top-right':     { label: 'Top Right',         icon: '↗', rect: { x: 0.74, y: 0.02, w: 0.25, h: 0.09 } },
-  'top-left':      { label: 'Top Left',          icon: '↖', rect: { x: 0.01, y: 0.02, w: 0.25, h: 0.09 } },
-  'bottom-bar':    { label: 'Bottom Bar',        icon: '—', rect: { x: 0.00, y: 0.90, w: 1.00, h: 0.10 } },
+const PRESETS: Record<string, { label: string; icon: string; rect: { x: number; y: number; w: number; h: number } }> = {
+  'gemini':        { label: 'Gemini (Bottom-R)', icon: '✨', rect: { x: 0.70, y: 0.82, w: 0.29, h: 0.17 } },
+  'bottom-right':  { label: 'Bottom Right',      icon: '↘', rect: { x: 0.72, y: 0.83, w: 0.27, h: 0.16 } },
+  'bottom-left':   { label: 'Bottom Left',       icon: '↙', rect: { x: 0.01, y: 0.83, w: 0.27, h: 0.16 } },
+  'top-right':     { label: 'Top Right',         icon: '↗', rect: { x: 0.72, y: 0.01, w: 0.27, h: 0.14 } },
+  'top-left':      { label: 'Top Left',          icon: '↖', rect: { x: 0.01, y: 0.01, w: 0.27, h: 0.14 } },
+  'bottom-bar':    { label: 'Bottom Bar',        icon: '—', rect: { x: 0.00, y: 0.83, w: 1.00, h: 0.17 } },
 };
 
 function formatBytes(bytes: number): string {
@@ -77,14 +79,15 @@ export default function Home() {
   // ✨ Gemini AI Watermark Killer (Dedicated Zero-Blur System)
   const [geminiActive, setGeminiActive] = useState<boolean>(true);
   const [geminiStrategy, setGeminiStrategy] = useState<GeminiStrategy>('merge');
+  const [geminiCoverHeight, setGeminiCoverHeight] = useState<number>(85); // 40px to 140px
 
   // Border Mask Extensions (Extend black border over edge watermarks)
   const [topBorderCover, setTopBorderCover] = useState<number>(0);       // px
   const [bottomBorderCover, setBottomBorderCover] = useState<number>(0); // px
 
-  // Watermark Selection & Removal Method for custom markings
+  // Watermark Selection & Removal Method
   const [watermarkRects, setWatermarkRects] = useState<WatermarkRect[]>([]);
-  const [removalMethod, setRemovalMethod] = useState<RemovalMethod>('texture_clone');
+  const [removalMethod, setRemovalMethod] = useState<RemovalMethod>('border_merge');
 
   // Interactive Canvas Drawing State
   const [isDrawing, setIsDrawing] = useState(false);
@@ -94,6 +97,9 @@ export default function Home() {
   // Live Frame Preview Modal
   const [previewFrameUrl, setPreviewFrameUrl] = useState<string>('');
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+
+  // Feedback toast
+  const [toastMessage, setToastMessage] = useState<string>('');
 
   // FFmpeg Processing State
   const [ffmpegLoaded, setFfmpegLoaded] = useState(false);
@@ -112,6 +118,12 @@ export default function Home() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Trigger feedback toast
+  const showToast = useCallback((msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(''), 3000);
+  }, []);
 
   // ────────────────────────────────────────────
   // File Upload Handlers
@@ -144,11 +156,25 @@ export default function Home() {
     setVerticalAlign('center');
     setGeminiActive(true);
     setGeminiStrategy('merge');
+    setGeminiCoverHeight(85);
     setTopBorderCover(0);
     setBottomBorderCover(0);
-    setWatermarkRects([]);
+
+    // Auto-add Gemini watermark box
+    setWatermarkRects([
+      {
+        id: 'gemini-default',
+        label: '✨ Gemini Watermark (Bottom-R)',
+        x: 0.70,
+        y: 0.82,
+        w: 0.29,
+        h: 0.17,
+      }
+    ]);
+
     setStep('editor');
-  }, []);
+    showToast('✨ Video loaded! Gemini watermark auto-detected & zero-blur cover active.');
+  }, [showToast]);
 
   const onVideoDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -260,23 +286,30 @@ export default function Home() {
     if (!isDrawing || !drawStart) return;
     const coords = canvasToVideoCoords(e.clientX, e.clientY);
     if (coords) {
+      const rx = Math.min(drawStart.x, coords.x);
+      const ry = Math.min(drawStart.y, coords.y);
+      const rw = Math.abs(coords.x - drawStart.x);
+      const rh = Math.abs(coords.y - drawStart.y);
       setCurrentRect({
-        x: Math.min(drawStart.x, coords.x),
-        y: Math.min(drawStart.y, coords.y),
-        w: Math.abs(coords.x - drawStart.x),
-        h: Math.abs(coords.y - drawStart.y),
+        id: `custom-${Date.now()}`,
+        label: `Watermark #${watermarkRects.length + 1}`,
+        x: rx,
+        y: ry,
+        w: rw,
+        h: rh,
       });
     }
-  }, [isDrawing, drawStart, canvasToVideoCoords]);
+  }, [isDrawing, drawStart, canvasToVideoCoords, watermarkRects.length]);
 
   const onCanvasMouseUp = useCallback(() => {
-    if (currentRect && currentRect.w > 0.01 && currentRect.h > 0.01) {
+    if (currentRect && currentRect.w > 0.02 && currentRect.h > 0.02) {
       setWatermarkRects(prev => [...prev, currentRect]);
+      showToast('Watermark area marked successfully!');
     }
     setIsDrawing(false);
     setDrawStart(null);
     setCurrentRect(null);
-  }, [currentRect]);
+  }, [currentRect, showToast]);
 
   // ────────────────────────────────────────────
   // Video Playback Controls
@@ -300,6 +333,46 @@ export default function Home() {
     vid.currentTime = target;
     setCurrentTime(target);
   }, []);
+
+  // ────────────────────────────────────────────
+  // Preset Button Click Handler (100% Responsive)
+  // ────────────────────────────────────────────
+  const addPreset = useCallback((key: string) => {
+    const preset = PRESETS[key];
+    if (!preset) return;
+
+    if (key === 'gemini') {
+      setGeminiActive(true);
+      setGeminiStrategy('merge');
+      // Add or replace Gemini box
+      setWatermarkRects(prev => {
+        const filtered = prev.filter(p => !p.id.startsWith('gemini'));
+        return [
+          ...filtered,
+          {
+            id: `gemini-${Date.now()}`,
+            label: '✨ Gemini Watermark (Bottom-R)',
+            ...preset.rect,
+          }
+        ];
+      });
+      showToast('✨ Gemini Watermark preset activated & highlighted on canvas!');
+    } else {
+      const newBox: WatermarkRect = {
+        id: `${key}-${Date.now()}`,
+        label: preset.label,
+        ...preset.rect,
+      };
+      setWatermarkRects(prev => [...prev, newBox]);
+      showToast(`Added ${preset.label} watermark box!`);
+    }
+  }, [showToast]);
+
+  const clearRects = useCallback(() => {
+    setWatermarkRects([]);
+    setGeminiActive(false);
+    showToast('All watermark boxes cleared.');
+  }, [showToast]);
 
   // ────────────────────────────────────────────
   // Live Canvas Render Loop (Zero-Blur Accurate Preview)
@@ -345,29 +418,29 @@ export default function Home() {
       // 3. ZERO-BLUR GEMINI WATERMARK REMOVAL RENDERING
       if (geminiActive && fitMode === 'black_borders') {
         if (geminiStrategy === 'merge') {
-          // Bottom Letterbox Merge: Covers bottom 46px of video with pure black
+          // Bottom Letterbox Merge: Covers bottom geminiCoverHeight (default 85px) of video
           // Merges 100% seamlessly into the bottom black letterbox bar
-          const coverY = layout.y + layout.h - 46;
+          const coverY = layout.y + layout.h - geminiCoverHeight;
           ctx.fillStyle = borderColor;
           ctx.fillRect(0, coverY, 1080, 1920 - coverY);
         } else if (geminiStrategy === 'corner') {
           // Corner Black Patch: Covers only bottom-right corner
-          const cw = Math.round(layout.w * 0.19);
-          const ch = Math.round(layout.h * 0.11);
+          const cw = Math.round(layout.w * 0.30);
+          const ch = geminiCoverHeight;
           const cx = layout.x + layout.w - cw;
           const cy = layout.y + layout.h - ch;
           ctx.fillStyle = borderColor;
           ctx.fillRect(cx, cy, cw, 1920 - cy);
         } else if (geminiStrategy === 'clone') {
           // Dynamic Texture Clone: Copy live moving texture from directly above the logo
-          const gw = Math.round(layout.w * 0.18);
-          const gh = Math.round(layout.h * 0.10);
+          const gw = Math.round(layout.w * 0.28);
+          const gh = geminiCoverHeight;
           const gx = layout.x + layout.w - gw;
           const gy = layout.y + layout.h - gh;
           const cloneY = Math.max(layout.y, gy - gh);
           try {
             ctx.drawImage(canvas, gx, cloneY, gw, gh, gx, gy, gw, gh);
-          } catch { /* ignore on init */ }
+          } catch { /* skip on init */ }
         }
       }
 
@@ -382,34 +455,51 @@ export default function Home() {
       }
 
       // 5. Draw Custom Watermark Bounding Boxes / Patches
-      watermarkRects.forEach((r, idx) => {
+      watermarkRects.forEach((r) => {
         const vx = layout.x + r.x * layout.w;
         const vy = layout.y + r.y * layout.h;
         const vw = r.w * layout.w;
         const vh = r.h * layout.h;
 
-        if (removalMethod === 'texture_clone') {
-          // Show texture clone effect
-          const cy = Math.max(layout.y, vy - vh);
-          try {
-            ctx.drawImage(canvas, vx, cy, vw, vh, vx, vy, vw, vh);
-          } catch { /* skip */ }
-        } else if (removalMethod === 'border_cover') {
-          ctx.fillStyle = borderColor;
-          ctx.fillRect(vx, vy, vw, vh);
+        const isGeminiBox = r.id.startsWith('gemini');
+
+        // Render removal effect on canvas if not in merge mode
+        if (!geminiActive || !isGeminiBox || geminiStrategy !== 'merge') {
+          if (removalMethod === 'texture_clone') {
+            const cy = Math.max(layout.y, vy - vh);
+            try {
+              ctx.drawImage(canvas, vx, cy, vw, vh, vx, vy, vw, vh);
+            } catch { /* skip */ }
+          } else if (removalMethod === 'border_merge' || removalMethod === 'corner_mask') {
+            ctx.fillStyle = borderColor;
+            ctx.fillRect(vx, vy, vw, vh);
+          }
         }
 
-        // Overlay outline
-        ctx.fillStyle = 'rgba(239, 68, 68, 0.2)';
-        ctx.fillRect(vx, vy, vw, vh);
-        ctx.strokeStyle = '#ef4444';
-        ctx.lineWidth = 2.5;
-        ctx.setLineDash([6, 4]);
-        ctx.strokeRect(vx, vy, vw, vh);
-        ctx.setLineDash([]);
-        ctx.fillStyle = '#ef4444';
-        ctx.font = 'bold 18px Inter, sans-serif';
-        ctx.fillText(`Watermark #${idx + 1}`, vx + 6, vy + 22);
+        // Overlay visual indicator box
+        if (isGeminiBox) {
+          ctx.fillStyle = 'rgba(168, 85, 247, 0.2)';
+          ctx.fillRect(vx, vy, vw, vh);
+          ctx.strokeStyle = '#a855f7';
+          ctx.lineWidth = 2.5;
+          ctx.setLineDash([6, 3]);
+          ctx.strokeRect(vx, vy, vw, vh);
+          ctx.setLineDash([]);
+          ctx.fillStyle = '#c084fc';
+          ctx.font = 'bold 17px Inter, sans-serif';
+          ctx.fillText(r.label, vx + 6, vy + 22);
+        } else {
+          ctx.fillStyle = 'rgba(239, 68, 68, 0.2)';
+          ctx.fillRect(vx, vy, vw, vh);
+          ctx.strokeStyle = '#ef4444';
+          ctx.lineWidth = 2.5;
+          ctx.setLineDash([6, 3]);
+          ctx.strokeRect(vx, vy, vw, vh);
+          ctx.setLineDash([]);
+          ctx.fillStyle = '#ef4444';
+          ctx.font = 'bold 17px Inter, sans-serif';
+          ctx.fillText(r.label, vx + 6, vy + 22);
+        }
       });
 
       // 6. Currently Dragging Box
@@ -442,6 +532,7 @@ export default function Home() {
     borderColor,
     geminiActive,
     geminiStrategy,
+    geminiCoverHeight,
     topBorderCover,
     bottomBorderCover,
     watermarkRects,
@@ -459,22 +550,6 @@ export default function Home() {
     if (!canvas) return;
     setPreviewFrameUrl(canvas.toDataURL('image/jpeg', 0.95));
     setShowPreviewModal(true);
-  }, []);
-
-  const addPreset = useCallback((key: string) => {
-    if (key === 'gemini') {
-      setGeminiActive(true);
-      setGeminiStrategy('merge');
-      return;
-    }
-    const preset = PRESETS[key];
-    if (preset) {
-      setWatermarkRects(prev => [...prev, { ...preset.rect }]);
-    }
-  }, []);
-
-  const clearRects = useCallback(() => {
-    setWatermarkRects([]);
   }, []);
 
   // ────────────────────────────────────────────
@@ -565,13 +640,31 @@ export default function Home() {
       // ZERO-BLUR FFmpeg Filter Pipeline
       // ══════════════════════════════════════════════════════════
 
-      if (fitMode === 'blurred_bg') {
-        // Blurred Background Mode
+      let padY = '(oh-ih)/2';
+      if (verticalAlign === 'top') padY = '0';
+      if (verticalAlign === 'bottom') padY = 'oh-ih';
+
+      const colorStr = borderColor.replace('#', '0x') || 'black';
+
+      // Determine if Texture Clone strategy is required
+      const isTextureClone =
+        (geminiActive && geminiStrategy === 'clone') ||
+        removalMethod === 'texture_clone';
+
+      if (isTextureClone) {
+        // Dynamic Texture Clone:
+        // Clones clean moving video texture from directly above the watermark box
+        const gx = Math.round(0.70 * vidW);
+        const gh = Math.round((geminiCoverHeight / 608) * vidH);
+        const gy = Math.max(0, vidH - gh);
+        const gw = vidW - gx;
+        const cloneY = Math.max(0, gy - gh);
+
         const filterComplex = [
-          `[0:v]split=2[bg][fg]`,
-          `[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=luma_radius=35:luma_power=2[blurred]`,
-          `[fg]scale=1080:1920:force_original_aspect_ratio=decrease[small]`,
-          `[blurred][small]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2,setsar=1[out]`,
+          `[0:v]split=2[main][patch]`,
+          `[patch]crop=${gw}:${gh}:${gx}:${cloneY}[p]`,
+          `[main][p]overlay=${gx}:${gy}[cleaned]`,
+          `[cleaned]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:${padY}:color=${colorStr},setsar=1[out]`
         ].join(';');
 
         await ffmpeg.exec([
@@ -588,22 +681,53 @@ export default function Home() {
           '-y',
           'output.mp4',
         ]);
-      } else if (fitMode === 'crop') {
-        // Direct Center Crop Mode
-        const targetAspect = 9 / 16;
-        let cropW = vidW;
-        let cropH = vidH;
-        if (vidW / vidH > targetAspect) {
-          cropW = Math.round(vidH * targetAspect);
-        } else {
-          cropH = Math.round(vidW / targetAspect);
+      } else {
+        // Solid Zero-Blur Strategy: Letterbox Merge or Corner Mask
+        const filterSteps: string[] = [];
+
+        // 1. Scale original video to fit 1080 width without cropping
+        filterSteps.push(`scale=1080:1920:force_original_aspect_ratio=decrease`);
+
+        // 2. ZERO-BLUR GEMINI / EDGE WATERMARK ELIMINATION (Applied BEFORE pad on scaled video)
+        if (geminiActive || watermarkRects.some(r => r.id.startsWith('gemini'))) {
+          if (geminiStrategy === 'merge') {
+            // Extends bottom black letterbox by geminiCoverHeight (default 85px)
+            // Completely absorbs Gemini star + text with 0% blur
+            filterSteps.push(`drawbox=x=0:y=ih-${geminiCoverHeight}:w=1080:h=${geminiCoverHeight}:color=${colorStr}@1.0:t=fill`);
+          } else if (geminiStrategy === 'corner') {
+            // Crisp solid black corner box
+            filterSteps.push(`drawbox=x=760:y=ih-${geminiCoverHeight}:w=320:h=${geminiCoverHeight}:color=${colorStr}@1.0:t=fill`);
+          }
         }
-        const cropX = Math.round((vidW - cropW) / 2);
-        const cropY = Math.round((vidH - cropH) / 2);
+
+        // 3. Process any additional custom watermark rects
+        watermarkRects.forEach((r) => {
+          if (!r.id.startsWith('gemini')) {
+            const rx = Math.round(r.x * 1080);
+            const rw = Math.round(r.w * 1080);
+            filterSteps.push(`drawbox=x=${rx}:y=round(${r.y}*ih):w=${rw}:h=round(${r.h}*ih):color=${colorStr}@1.0:t=fill`);
+          }
+        });
+
+        // 4. Extended Border Masks from sliders
+        if (topBorderCover > 0) {
+          filterSteps.push(`drawbox=x=0:y=0:w=1080:h=${topBorderCover}:color=${colorStr}@1.0:t=fill`);
+        }
+        if (bottomBorderCover > 0 && !(geminiActive && geminiStrategy === 'merge')) {
+          filterSteps.push(`drawbox=x=0:y=ih-${bottomBorderCover}:w=1080:h=${bottomBorderCover}:color=${colorStr}@1.0:t=fill`);
+        }
+
+        // 5. Pad to exact 1080x1920 with pure black borders
+        filterSteps.push(`pad=1080:1920:(ow-iw)/2:${padY}:color=${colorStr}`);
+
+        // 6. 1:1 Square Pixel Aspect Ratio
+        filterSteps.push(`setsar=1`);
+
+        const vf = filterSteps.join(',');
 
         await ffmpeg.exec([
           '-i', inputFilename,
-          '-vf', `crop=${cropW}:${cropH}:${cropX}:${cropY},scale=1080:1920:flags=lanczos,setsar=1`,
+          '-vf', vf,
           '-c:v', 'libx264',
           '-preset', 'ultrafast',
           '-crf', '21',
@@ -613,96 +737,6 @@ export default function Home() {
           '-y',
           'output.mp4',
         ]);
-      } else {
-        // ──────────────────────────────────────────────────────────
-        // FIT MODE: BLACK BORDERS (100% Uncropped, Top & Bottom Letterbox)
-        // ──────────────────────────────────────────────────────────
-
-        let padY = '(oh-ih)/2';
-        if (verticalAlign === 'top') padY = '0';
-        if (verticalAlign === 'bottom') padY = 'oh-ih';
-
-        const colorStr = borderColor.replace('#', '0x') || 'black';
-
-        // Check if Texture Clone filter_complex is needed
-        if (geminiActive && geminiStrategy === 'clone') {
-          // Dynamic Texture Clone for Gemini Watermark:
-          // Clones clean moving video texture from directly above the logo
-          const gx = Math.round(0.81 * vidW);
-          const gy = Math.round(0.88 * vidH);
-          const gw = Math.round(0.18 * vidW);
-          const gh = Math.round(0.10 * vidH);
-          const cloneY = Math.max(0, gy - gh);
-
-          const filterComplex = [
-            `[0:v]split=2[main][patch]`,
-            `[patch]crop=${gw}:${gh}:${gx}:${cloneY}[p]`,
-            `[main][p]overlay=${gx}:${gy}[cleaned]`,
-            `[cleaned]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:${padY}:color=${colorStr},setsar=1[out]`
-          ].join(';');
-
-          await ffmpeg.exec([
-            '-i', inputFilename,
-            '-filter_complex', filterComplex,
-            '-map', '[out]',
-            '-map', '0:a?',
-            '-c:v', 'libx264',
-            '-preset', 'ultrafast',
-            '-crf', '21',
-            '-c:a', 'aac',
-            '-b:a', '128k',
-            '-movflags', '+faststart',
-            '-y',
-            'output.mp4',
-          ]);
-        } else {
-          // Strategy: Letterbox Merge, Corner Mask, or Border Cover (ZERO BLUR)
-          const filterSteps: string[] = [];
-
-          // 1. Scale video to fit inside 1080 width without cropping
-          filterSteps.push(`scale=1080:1920:force_original_aspect_ratio=decrease`);
-
-          // 2. ZERO-BLUR GEMINI WATERMARK ELIMINATION (Applied BEFORE pad on scaled video)
-          if (geminiActive) {
-            if (geminiStrategy === 'merge') {
-              // Extends the bottom black letterbox by 46px to absorb the Gemini logo
-              // 0% BLUR • 100% video sharpness preserved
-              filterSteps.push(`drawbox=x=0:y=ih-46:w=1080:h=46:color=${colorStr}@1.0:t=fill`);
-            } else if (geminiStrategy === 'corner') {
-              // Covers only the bottom-right corner with solid black
-              filterSteps.push(`drawbox=x=860:y=ih-52:w=220:h=52:color=${colorStr}@1.0:t=fill`);
-            }
-          }
-
-          // 3. User Border Sliders (Applied BEFORE pad on scaled video)
-          if (topBorderCover > 0) {
-            filterSteps.push(`drawbox=x=0:y=0:w=1080:h=${topBorderCover}:color=${colorStr}@1.0:t=fill`);
-          }
-          if (bottomBorderCover > 0 && !(geminiActive && geminiStrategy === 'merge')) {
-            filterSteps.push(`drawbox=x=0:y=ih-${bottomBorderCover}:w=1080:h=${bottomBorderCover}:color=${colorStr}@1.0:t=fill`);
-          }
-
-          // 4. Pad to exact 1080x1920 with pure black borders
-          filterSteps.push(`pad=1080:1920:(ow-iw)/2:${padY}:color=${colorStr}`);
-
-          // 5. Square pixels (1:1 SAR)
-          filterSteps.push(`setsar=1`);
-
-          const vf = filterSteps.join(',');
-
-          await ffmpeg.exec([
-            '-i', inputFilename,
-            '-vf', vf,
-            '-c:v', 'libx264',
-            '-preset', 'ultrafast',
-            '-crf', '21',
-            '-c:a', 'aac',
-            '-b:a', '128k',
-            '-movflags', '+faststart',
-            '-y',
-            'output.mp4',
-          ]);
-        }
       }
 
       // Read output
@@ -731,11 +765,13 @@ export default function Home() {
   }, [
     videoFile,
     videoInfo,
-    fitMode,
     verticalAlign,
     borderColor,
     geminiActive,
     geminiStrategy,
+    geminiCoverHeight,
+    watermarkRects,
+    removalMethod,
     topBorderCover,
     bottomBorderCover,
   ]);
@@ -781,6 +817,13 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-grid">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed top-5 right-5 z-50 animate-slide-up bg-violet-600/95 text-white px-4 py-2.5 rounded-xl shadow-xl border border-violet-400/40 text-xs font-medium flex items-center gap-2 backdrop-blur-md">
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
       {/* Ambient background glows */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
         <div className="absolute -top-40 -left-40 w-96 h-96 bg-purple-600/10 rounded-full blur-[140px]" />
@@ -996,7 +1039,7 @@ export default function Home() {
                     </div>
 
                     <div className="flex items-center justify-between text-[11px] text-zinc-400 px-1">
-                      <span>🖱️ Drag to mark watermark</span>
+                      <span>🖱️ Drag canvas to mark custom box</span>
                       <span className="text-emerald-400 font-medium">● Live 9:16 Preview</span>
                     </div>
                   </div>
@@ -1007,17 +1050,22 @@ export default function Home() {
               <div className="lg:col-span-7 space-y-4">
 
                 {/* 1. ✨ GEMINI AI WATERMARK KILLER CARD (PROMINENT ZERO-BLUR) */}
-                <div className="glass rounded-2xl p-4 border border-violet-500/30 bg-violet-950/15">
-                  <div className="flex items-center justify-between mb-2.5">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center text-sm shadow">
+                <div className="glass rounded-2xl p-4 border border-violet-500/40 bg-gradient-to-br from-violet-950/30 to-purple-950/20 shadow-lg">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center text-sm shadow-md">
                         ✨
                       </div>
                       <div>
-                        <h3 className="font-bold text-xs text-white">
-                          Gemini AI Watermark Killer
-                        </h3>
-                        <p className="text-[10px] text-zinc-400">Zero-blur removal for bottom-right Google Gemini logos</p>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-bold text-sm text-white">
+                            Gemini AI Watermark Killer
+                          </h3>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                            0% Blur Guarantee
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-zinc-400">Erases Google Gemini logo cleanly without any blurry smudges</p>
                       </div>
                     </div>
 
@@ -1025,68 +1073,107 @@ export default function Home() {
                       <input
                         type="checkbox"
                         checked={geminiActive}
-                        onChange={(e) => setGeminiActive(e.target.checked)}
+                        onChange={(e) => {
+                          setGeminiActive(e.target.checked);
+                          showToast(e.target.checked ? '✨ Gemini Killer Enabled' : 'Gemini Killer Disabled');
+                        }}
                         className="sr-only peer"
                       />
-                      <div className="w-9 h-5 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-violet-600"></div>
+                      <div className="w-10 h-5 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-violet-600"></div>
                     </label>
                   </div>
 
                   {geminiActive && (
-                    <div className="mt-3 pt-3 border-t border-white/5 space-y-2.5 animate-fade-in">
-                      <div className="grid grid-cols-3 gap-2">
-                        <button
-                          onClick={() => setGeminiStrategy('merge')}
-                          className={`text-left p-2.5 rounded-xl border transition-all ${
-                            geminiStrategy === 'merge'
-                              ? 'bg-violet-600/30 border-violet-500 text-white ring-1 ring-violet-500/40'
-                              : 'bg-white/5 border-white/5 text-zinc-400 hover:bg-white/10'
-                          }`}
-                        >
-                          <div className="font-semibold text-xs mb-1 flex items-center gap-1 text-emerald-300">
-                            <span>⬛</span> Letterbox Merge
-                          </div>
-                          <p className="text-[10px] text-zinc-400 leading-tight">
-                            Extends bottom black border to absorb logo. 0% blur.
-                          </p>
-                        </button>
+                    <div className="pt-3 border-t border-white/5 space-y-3 animate-fade-in">
+                      {/* Strategy Selector Buttons */}
+                      <div>
+                        <span className="text-[11px] font-semibold text-zinc-300 block mb-1.5">
+                          Removal Strategy:
+                        </span>
+                        <div className="grid grid-cols-3 gap-2">
+                          <button
+                            onClick={() => {
+                              setGeminiStrategy('merge');
+                              showToast('Selected Letterbox Merge Strategy (0% Blur)');
+                            }}
+                            className={`text-left p-3 rounded-xl border transition-all ${
+                              geminiStrategy === 'merge'
+                                ? 'bg-violet-600/30 border-violet-500 text-white ring-1 ring-violet-500/50 shadow-md'
+                                : 'bg-white/5 border-white/5 text-zinc-400 hover:bg-white/10'
+                            }`}
+                          >
+                            <div className="font-bold text-xs mb-1 flex items-center gap-1.5 text-emerald-300">
+                              <span>⬛</span> Letterbox Merge
+                            </div>
+                            <p className="text-[10px] text-zinc-400 leading-tight">
+                              Absorbs logo into bottom black border. 0% blur.
+                            </p>
+                          </button>
 
-                        <button
-                          onClick={() => setGeminiStrategy('clone')}
-                          className={`text-left p-2.5 rounded-xl border transition-all ${
-                            geminiStrategy === 'clone'
-                              ? 'bg-violet-600/30 border-violet-500 text-white ring-1 ring-violet-500/40'
-                              : 'bg-white/5 border-white/5 text-zinc-400 hover:bg-white/10'
-                          }`}
-                        >
-                          <div className="font-semibold text-xs mb-1 flex items-center gap-1 text-violet-300">
-                            <span>🎨</span> Texture Clone
-                          </div>
-                          <p className="text-[10px] text-zinc-400 leading-tight">
-                            Clones moving video background above logo. 0% blur.
-                          </p>
-                        </button>
+                          <button
+                            onClick={() => {
+                              setGeminiStrategy('clone');
+                              showToast('Selected Texture Clone Strategy (0% Blur)');
+                            }}
+                            className={`text-left p-3 rounded-xl border transition-all ${
+                              geminiStrategy === 'clone'
+                                ? 'bg-violet-600/30 border-violet-500 text-white ring-1 ring-violet-500/50 shadow-md'
+                                : 'bg-white/5 border-white/5 text-zinc-400 hover:bg-white/10'
+                            }`}
+                          >
+                            <div className="font-bold text-xs mb-1 flex items-center gap-1.5 text-violet-300">
+                              <span>🎨</span> Texture Clone
+                            </div>
+                            <p className="text-[10px] text-zinc-400 leading-tight">
+                              Clones moving background from above logo. 0% blur.
+                            </p>
+                          </button>
 
-                        <button
-                          onClick={() => setGeminiStrategy('corner')}
-                          className={`text-left p-2.5 rounded-xl border transition-all ${
-                            geminiStrategy === 'corner'
-                              ? 'bg-violet-600/30 border-violet-500 text-white ring-1 ring-violet-500/40'
-                              : 'bg-white/5 border-white/5 text-zinc-400 hover:bg-white/10'
-                          }`}
-                        >
-                          <div className="font-semibold text-xs mb-1 flex items-center gap-1 text-blue-300">
-                            <span>📐</span> Corner Patch
-                          </div>
-                          <p className="text-[10px] text-zinc-400 leading-tight">
-                            Covers bottom-right corner with crisp black block.
-                          </p>
-                        </button>
+                          <button
+                            onClick={() => {
+                              setGeminiStrategy('corner');
+                              showToast('Selected Corner Patch Strategy (0% Blur)');
+                            }}
+                            className={`text-left p-3 rounded-xl border transition-all ${
+                              geminiStrategy === 'corner'
+                                ? 'bg-violet-600/30 border-violet-500 text-white ring-1 ring-violet-500/50 shadow-md'
+                                : 'bg-white/5 border-white/5 text-zinc-400 hover:bg-white/10'
+                            }`}
+                          >
+                            <div className="font-bold text-xs mb-1 flex items-center gap-1.5 text-blue-300">
+                              <span>📐</span> Corner Patch
+                            </div>
+                            <p className="text-[10px] text-zinc-400 leading-tight">
+                              Covers bottom-right corner with black box.
+                            </p>
+                          </button>
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px]">
+                      {/* Coverage Height Slider */}
+                      <div className="bg-black/30 p-3 rounded-xl border border-white/5">
+                        <div className="flex items-center justify-between text-xs mb-1">
+                          <span className="text-zinc-300 font-medium">Cover Height on Video Edge:</span>
+                          <span className="font-mono text-violet-400 font-bold">{geminiCoverHeight}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="50"
+                          max="140"
+                          value={geminiCoverHeight}
+                          onChange={(e) => setGeminiCoverHeight(parseInt(e.target.value))}
+                          className="w-full accent-violet-500 cursor-pointer"
+                        />
+                        <div className="flex justify-between text-[10px] text-zinc-500 mt-1">
+                          <span>50px (Small text)</span>
+                          <span>85px (Standard Gemini Star + Text)</span>
+                          <span>140px (Tall logo)</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs">
                         <span>🛡️</span>
-                        <span><strong>Zero-Blur Guarantee:</strong> Every single pixel outside the watermark remains 100% original high-res quality.</span>
+                        <span><strong>Zero-Blur Guarantee:</strong> Eliminates `delogo` interpolation completely. 100% of the active video stays original razor-sharp quality.</span>
                       </div>
                     </div>
                   )}
@@ -1170,11 +1257,82 @@ export default function Home() {
                   )}
                 </div>
 
-                {/* 3. Edge Border Mask Sliders */}
+                {/* 3. Watermark Presets & Custom Selection */}
+                <div className="glass rounded-2xl p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-semibold text-xs text-zinc-400 uppercase tracking-wider">
+                      3. Quick Watermark Presets & Boxes
+                    </h3>
+                    {watermarkRects.length > 0 && (
+                      <button
+                        onClick={clearRects}
+                        className="text-xs text-red-400 hover:text-red-300 transition"
+                      >
+                        Clear All
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Preset Buttons Grid */}
+                  <div className="grid grid-cols-6 gap-1.5 mb-3">
+                    {Object.entries(PRESETS).map(([key, preset]) => {
+                      const isGemini = key === 'gemini';
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => addPreset(key)}
+                          className={`rounded-lg py-2 px-1 text-center transition-all hover:scale-105 border ${
+                            isGemini
+                              ? 'bg-violet-600/30 border-violet-500/60 text-white ring-1 ring-violet-500/40 shadow'
+                              : 'glass glass-hover border-white/5 text-zinc-300'
+                          }`}
+                        >
+                          <div className="text-base leading-none mb-1">{preset.icon}</div>
+                          <div className={`text-[9px] leading-tight truncate ${isGemini ? 'font-bold text-violet-200' : 'text-zinc-400'}`}>
+                            {preset.label}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Marked Watermark List */}
+                  {watermarkRects.length > 0 ? (
+                    <div className="space-y-1.5 max-h-28 overflow-y-auto pr-1">
+                      {watermarkRects.map((r, i) => (
+                        <div
+                          key={r.id || i}
+                          className="flex items-center justify-between bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-zinc-300"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className={r.id.startsWith('gemini') ? 'text-violet-400 font-semibold' : 'text-zinc-300'}>
+                              {r.label}
+                            </span>
+                            <span className="text-[10px] text-zinc-500 font-mono">
+                              ({Math.round(r.x * 100)}%, {Math.round(r.y * 100)}%)
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => setWatermarkRects(prev => prev.filter((_, j) => j !== i))}
+                            className="text-zinc-500 hover:text-red-400 px-1"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-zinc-500 text-center py-1">
+                      Click a preset above or drag directly on the video canvas to mark watermark.
+                    </p>
+                  )}
+                </div>
+
+                {/* 4. Fine Adjustment Sliders */}
                 {fitMode === 'black_borders' && (
                   <div className="glass rounded-2xl p-4">
                     <h3 className="font-semibold text-xs text-zinc-400 uppercase tracking-wider mb-2 flex items-center justify-between">
-                      <span>3. Edge Watermark Fine Tuning</span>
+                      <span>4. Edge Watermark Fine Tuning</span>
                       <span className="text-[10px] text-zinc-500">Fine adjustment</span>
                     </h3>
 
@@ -1187,7 +1345,7 @@ export default function Home() {
                         <input
                           type="range"
                           min="0"
-                          max="60"
+                          max="80"
                           value={topBorderCover}
                           onChange={(e) => setTopBorderCover(parseInt(e.target.value))}
                           className="w-full accent-violet-500 cursor-pointer"
@@ -1202,7 +1360,7 @@ export default function Home() {
                         <input
                           type="range"
                           min="0"
-                          max="60"
+                          max="80"
                           value={bottomBorderCover}
                           onChange={(e) => setBottomBorderCover(parseInt(e.target.value))}
                           className="w-full accent-violet-500 cursor-pointer"
@@ -1211,61 +1369,6 @@ export default function Home() {
                     </div>
                   </div>
                 )}
-
-                {/* 4. Custom Watermarks & Presets */}
-                <div className="glass rounded-2xl p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-semibold text-xs text-zinc-400 uppercase tracking-wider">
-                      4. Custom Watermark Marking
-                    </h3>
-                    {watermarkRects.length > 0 && (
-                      <button
-                        onClick={clearRects}
-                        className="text-xs text-red-400 hover:text-red-300 transition"
-                      >
-                        Clear All
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Preset Buttons */}
-                  <div className="grid grid-cols-6 gap-1.5 mb-3">
-                    {Object.entries(PRESETS).map(([key, preset]) => (
-                      <button
-                        key={key}
-                        onClick={() => addPreset(key)}
-                        className="glass glass-hover rounded-lg py-2 px-1 text-center transition-all hover:scale-105"
-                      >
-                        <div className="text-base leading-none mb-1">{preset.icon}</div>
-                        <div className="text-[9px] text-zinc-400 leading-tight truncate">{preset.label}</div>
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Marked Watermark List */}
-                  {watermarkRects.length > 0 ? (
-                    <div className="space-y-1.5 max-h-24 overflow-y-auto pr-1">
-                      {watermarkRects.map((_, i) => (
-                        <div
-                          key={i}
-                          className="flex items-center justify-between bg-white/5 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-zinc-300"
-                        >
-                          <span>Custom Watermark #{i + 1} marked</span>
-                          <button
-                            onClick={() => setWatermarkRects(prev => prev.filter((_, j) => j !== i))}
-                            className="text-zinc-500 hover:text-red-400"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-[11px] text-zinc-500 text-center py-1">
-                      Drag directly on the video canvas to mark custom watermarks.
-                    </p>
-                  )}
-                </div>
 
                 {/* Buttons: Live Preview & Process */}
                 <div className="flex gap-2">
