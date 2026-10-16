@@ -369,23 +369,23 @@ HTML_CONTENT = """<!DOCTYPE html>
       if (videoNaturalH > videoNaturalW) {
         // Native 9:16 video
         if (videoNaturalW === 720 && videoNaturalH === 1280) {
-          coordX.value = 599;
-          coordY.value = 1155;
-          boxSize.value = 53;
+          coordX.value = 600;
+          coordY.value = 1160;
+          boxSize.value = 60;
         } else if (videoNaturalW === 1080 && videoNaturalH === 1920) {
-          coordX.value = 899;
-          coordY.value = 1733;
-          boxSize.value = 80;
+          coordX.value = 900;
+          coordY.value = 1740;
+          boxSize.value = 90;
         } else {
-          coordX.value = Math.round(videoNaturalW * (599 / 720));
-          coordY.value = Math.round(videoNaturalH * (1155 / 1280));
-          boxSize.value = Math.max(36, Math.min(100, Math.round(videoNaturalW * (53 / 720))));
+          coordX.value = Math.round(videoNaturalW * (600 / 720));
+          coordY.value = Math.round(videoNaturalH * (1160 / 1280));
+          boxSize.value = Math.max(40, Math.min(100, Math.round(videoNaturalW * (60 / 720))));
         }
       } else {
         // Standard 720x1280 portrait preset
-        coordX.value = 599;
-        coordY.value = 1155;
-        boxSize.value = 53;
+        coordX.value = 600;
+        coordY.value = 1160;
+        boxSize.value = 60;
       }
       updateTargetBox();
     }
@@ -414,7 +414,7 @@ HTML_CONTENT = """<!DOCTYPE html>
     presetPortrait.addEventListener('click', () => {
       videoContainer.style.aspectRatio = '9/16';
       applyPortraitPreset();
-      detectedFormatBadge.textContent = 'Mode: 9:16 Portrait (599, 1155)';
+      detectedFormatBadge.textContent = 'Mode: 9:16 Portrait (600, 1160)';
     });
 
     presetLandscape.addEventListener('click', () => {
@@ -710,7 +710,7 @@ def sync_process(job_id, input_path, output_path, cx, cy, box_size, ratio, loop)
     alpha_raw = cv2.imread(str(ALPHA_MASK_FILE), cv2.IMREAD_GRAYSCALE) if ALPHA_MASK_FILE.exists() else None
     if alpha_raw is not None:
         alpha_resized = cv2.resize(alpha_raw, (bw, bh))
-        binary = (alpha_resized > 10).astype(np.uint8) * 255
+        binary = (alpha_resized > 5).astype(np.uint8) * 255
         dilated = cv2.dilate(binary, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9)))
         mask_full[y1:y2, x1:x2] = dilated
     else:
