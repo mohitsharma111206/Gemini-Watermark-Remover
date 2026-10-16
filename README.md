@@ -1,89 +1,64 @@
-# 🎬 Clean9:16 — Pro Video Watermark Remover & 9:16 Converter
+# 🎬 Clean9:16 — No-Crop 9:16 Black Borders & Watermark Remover
 
-A modern, high-performance solution to remove video watermarks and convert videos into **1080×1920 (9:16 vertical)** format for TikTok, Instagram Reels, and YouTube Shorts.
+Converts horizontal (16:9, 4:3) videos to **exact 1080×1920 (9:16 vertical)** with **sleek black borders on top and bottom** — **without cropping any part of the original video** — while cleanly removing watermarks.
 
-**Available both as a Next.js Web App (ready for Vercel) and a high-speed Python Desktop CLI.**
-
----
-
-## 🌟 Why Clean9:16? (The "Zero-Blur" Difference)
-
-Traditional watermark removers simply smudge or blur the area where the logo was located (`delogo`), leaving an ugly foggy square on your video.
-
-**Clean9:16 solves this with two professional approaches:**
-
-### 1. 🌟 Smart 9:16 Reframe (0% Blur — Recommended)
-- Standard horizontal videos (16:9, 4:3, 1:1) have over **68% extra horizontal width** that must be cropped when converting to vertical 9:16.
-- Most watermarks (TikTok, YouTube, CapCut, Shutterstock) are located at the corners or edges.
-- **Clean9:16** provides an interactive visual 9:16 framing box with **Pan (Left/Center/Right)** and **Safe Margin Zoom (1.0x - 1.4x)**.
-- By panning over the main subject or applying a tiny 5-8% safe zoom, **corner watermarks are pushed completely outside the 9:16 frame**.
-- Result: **100% original video clarity, 0% blur, zero artifacts, native 1080×1920**.
-
-### 2. 🎨 Content-Aware Inpaint + Grain Match (For Center Watermarks)
-- For watermarks located directly on the subject inside the 9:16 viewport:
-- Instead of flat blur interpolation, Clean9:16 samples surrounding texture patterns and injects matching film grain.
-- Eliminates the artificial "plastic smudge" look and blends the reconstructed patch naturally with the video.
-
-### 3. 👁️ Live 9:16 Frame Preview
-- Inspect the exact 1080×1920 output frame with watermarks removed right inside the editor before processing the full video.
+**Deploy to Vercel in 1-click • 100% Client-Side WebAssembly • Zero Server Costs • Python CLI included**
 
 ---
 
-## 🚀 Running the Web App Locally
+## 🌟 How It Works
 
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
+### 1. ⬛ 100% Uncropped 9:16 Conversion (Letterboxing)
+- **Zero Cropping**: 100% of your original video is preserved (faces, subtitles, and sides remain completely visible).
+- **Standard 9:16 Dimensions**: Automatically scales your 16:9 video to fit the 1080px width, placing it in the center with top and bottom black borders (`1080×1920`), perfectly formatted for TikTok, Instagram Reels, and YouTube Shorts.
+- **Vertical Alignment**: Center (default), Top, or Bottom.
 
-2. Start the dev server:
+### 2. 🛡️ Clean Edge Watermark Masking (0% Blur)
+- If your watermark is located along the top or bottom edge of your video, you can use the **Border Cover Slider** to extend the top or bottom black border slightly (e.g. 5–30px).
+- The watermark is seamlessly covered by pure black, blending perfectly into the letterbox border with **zero blur and zero visual artifacts**.
+
+### 3. ✨ Content-Aware Inpainting with Film Grain Matching
+- For watermarks located directly on the video subject:
+- Inpaints the area and injects subtle matching film grain to avoid the flat, artificial "blurry smudge" look.
+
+---
+
+## 🚀 Running Locally
+
+1. Start the development server:
    ```bash
    npm run dev
    ```
-
-3. Open [http://localhost:3000](http://localhost:3000) in your browser.
+2. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
 ## 🌐 Deploying to Vercel
 
-The web application runs **100% in the user's browser using WebAssembly FFmpeg**.
-- **Zero server load**: No GPU or expensive compute needed on Vercel.
-- **100% Privacy**: Videos are never uploaded to any remote server.
-- **Infinite Free Scaling**: Handles videos of any length client-side.
+The app runs **100% in your browser using WebAssembly FFmpeg**. No videos are ever uploaded to a backend, so it runs on Vercel's free tier with zero server costs.
 
-### Steps to Deploy:
-1. Initialize and push your repository to GitHub:
+1. Commit and push your code to GitHub:
    ```bash
    git add .
-   git commit -m "feat: pro zero-blur watermark remover and 9:16 reframe"
+   git commit -m "feat: complete no-crop 9:16 black borders converter"
    git push origin main
    ```
-2. Visit [vercel.com/new](https://vercel.com/new) and import the repository.
-3. Click **Deploy**. Vercel will build and host it with Cross-Origin Isolation headers automatically applied.
+2. Go to [vercel.com/new](https://vercel.com/new) and import your repository.
+3. Click **Deploy**.
 
 ---
 
-## 🐍 Python Pro Engine (Offline / Batch Processing)
+## 🐍 Python CLI Usage
 
-For high-speed local processing of large 4K files or batch folders, use `watermark_remover_pro.py`:
+For batch processing or local offline conversion:
 
 ```bash
-# Basic 9:16 Smart Reframe with Auto-Crop
+# Convert 16:9 to 9:16 with black borders:
 python watermark_remover_pro.py -i input.mp4 -o output_916.mp4
 
-# Focus on subject on the left side:
-python watermark_remover_pro.py -i input.mp4 -o output_916.mp4 --pan-x 0.2
+# Cover bottom watermark by extending bottom black border up 25px:
+python watermark_remover_pro.py -i input.mp4 -o output_916.mp4 --bottom-cover 25
 
-# Corner watermark removal with 8% safe zoom:
-python watermark_remover_pro.py -i input.mp4 -o output_916.mp4 --zoom 1.08 --wm 0.7 0.0 1.0 0.1
+# Mark and inpaint a watermark at bottom-right:
+python watermark_remover_pro.py -i input.mp4 -o output_916.mp4 --wm 0.7 0.89 1.0 0.98
 ```
-
----
-
-## 🛠️ Tech Stack
-
-- **Framework**: Next.js 14 (App Router, React 18, TypeScript)
-- **Styling**: Tailwind CSS (Dark Glassmorphic UI)
-- **Web Engine**: @ffmpeg/ffmpeg (WebAssembly 0.12)
-- **Local Engine**: Python 3 + OpenCV (Navier-Stokes & Lanczos resampling)
