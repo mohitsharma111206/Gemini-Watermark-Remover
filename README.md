@@ -1,110 +1,89 @@
-# 🎬 Video Watermark Remover & 9:16 Converter
+# 🎬 Clean9:16 — Pro Video Watermark Remover & 9:16 Converter
 
-A modern, high-performance web application to remove watermarks from videos and convert them into 9:16 vertical (Reels, TikTok, Shorts) format.
+A modern, high-performance solution to remove video watermarks and convert videos into **1080×1920 (9:16 vertical)** format for TikTok, Instagram Reels, and YouTube Shorts.
 
-**100% Client-Side** • **Zero Server Costs** • **Privacy-First** • **Ready for Vercel**
-
----
-
-## ✨ Key Features
-
-- **🛡️ 100% Client-Side & Private**: All video processing happens directly in the user's browser using WebAssembly FFmpeg (`@ffmpeg/ffmpeg`). Videos are never uploaded to any server.
-- **✂️ Interactive Watermark Removal**:
-  - Drag-and-draw bounding box directly on video preview to select watermark area.
-  - Multi-region selection (remove watermarks from multiple locations).
-  - One-click presets (Top-Left, Top-Right, Bottom-Right, Bottom-Center, etc.).
-  - Uses FFmpeg's `delogo` interpolation filter for seamless removal.
-- **📱 9:16 Aspect Ratio Conversion**:
-  - **Center Crop**: Focuses on center action and crops sides to standard 1080×1920 portrait format.
-  - **Blur Fill**: Preserves entire video frame without cropping, filling top/bottom borders with an animated blurred background.
-- **⚡ Audio Preservation**: Retains original audio track synchronized in high-quality AAC format.
-- **📊 Real-time Progress Tracking**: Live percentage and estimated time remaining during processing.
-- **🎨 Modern Dark UI**: Built with Tailwind CSS, glassmorphism cards, and smooth micro-interactions.
+**Available both as a Next.js Web App (ready for Vercel) and a high-speed Python Desktop CLI.**
 
 ---
 
-## 🚀 Running Locally
+## 🌟 Why Clean9:16? (The "Zero-Blur" Difference)
 
-### Prerequisites
-- Node.js 18.0 or newer
-- npm or pnpm or yarn
+Traditional watermark removers simply smudge or blur the area where the logo was located (`delogo`), leaving an ugly foggy square on your video.
 
-### Steps
+**Clean9:16 solves this with two professional approaches:**
+
+### 1. 🌟 Smart 9:16 Reframe (0% Blur — Recommended)
+- Standard horizontal videos (16:9, 4:3, 1:1) have over **68% extra horizontal width** that must be cropped when converting to vertical 9:16.
+- Most watermarks (TikTok, YouTube, CapCut, Shutterstock) are located at the corners or edges.
+- **Clean9:16** provides an interactive visual 9:16 framing box with **Pan (Left/Center/Right)** and **Safe Margin Zoom (1.0x - 1.4x)**.
+- By panning over the main subject or applying a tiny 5-8% safe zoom, **corner watermarks are pushed completely outside the 9:16 frame**.
+- Result: **100% original video clarity, 0% blur, zero artifacts, native 1080×1920**.
+
+### 2. 🎨 Content-Aware Inpaint + Grain Match (For Center Watermarks)
+- For watermarks located directly on the subject inside the 9:16 viewport:
+- Instead of flat blur interpolation, Clean9:16 samples surrounding texture patterns and injects matching film grain.
+- Eliminates the artificial "plastic smudge" look and blends the reconstructed patch naturally with the video.
+
+### 3. 👁️ Live 9:16 Frame Preview
+- Inspect the exact 1080×1920 output frame with watermarks removed right inside the editor before processing the full video.
+
+---
+
+## 🚀 Running the Web App Locally
 
 1. Install dependencies:
    ```bash
    npm install
    ```
 
-2. Start the development server:
+2. Start the dev server:
    ```bash
    npm run dev
    ```
 
-3. Open your browser and navigate to:
-   ```
-   http://localhost:3000
-   ```
+3. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
 ## 🌐 Deploying to Vercel
 
-This project is tailored specifically for Vercel deployment.
+The web application runs **100% in the user's browser using WebAssembly FFmpeg**.
+- **Zero server load**: No GPU or expensive compute needed on Vercel.
+- **100% Privacy**: Videos are never uploaded to any remote server.
+- **Infinite Free Scaling**: Handles videos of any length client-side.
 
-### Option 1: Deploy with Git & Vercel Dashboard (Recommended)
-
-1. Initialize Git and commit the files:
+### Steps to Deploy:
+1. Initialize and push your repository to GitHub:
    ```bash
-   git init
    git add .
-   git commit -m "Initial commit"
+   git commit -m "feat: pro zero-blur watermark remover and 9:16 reframe"
+   git push origin main
    ```
-2. Push to your GitHub / GitLab / Bitbucket repository:
-   ```bash
-   git remote add origin https://github.com/your-username/video-watermark-remover.git
-   git branch -M main
-   git push -u origin main
-   ```
-3. Go to [vercel.com/new](https://vercel.com/new).
-4. Import your repository.
-5. Vercel automatically detects Next.js. Click **Deploy**.
-
-### Option 2: Deploy using Vercel CLI
-
-1. Install Vercel CLI (if not already installed):
-   ```bash
-   npm i -g vercel
-   ```
-2. Run deployment:
-   ```bash
-   vercel
-   ```
-3. For production deployment:
-   ```bash
-   vercel --prod
-   ```
+2. Visit [vercel.com/new](https://vercel.com/new) and import the repository.
+3. Click **Deploy**. Vercel will build and host it with Cross-Origin Isolation headers automatically applied.
 
 ---
 
-## ⚙️ Technical Architecture & Headers
+## 🐍 Python Pro Engine (Offline / Batch Processing)
 
-To execute WebAssembly multithreaded operations in modern browsers, **SharedArrayBuffer** requires Cross-Origin Isolation headers. Both `next.config.mjs` and `vercel.json` are pre-configured with:
+For high-speed local processing of large 4K files or batch folders, use `watermark_remover_pro.py`:
 
-```json
-{
-  "Cross-Origin-Opener-Policy": "same-origin",
-  "Cross-Origin-Embedder-Policy": "require-corp"
-}
+```bash
+# Basic 9:16 Smart Reframe with Auto-Crop
+python watermark_remover_pro.py -i input.mp4 -o output_916.mp4
+
+# Focus on subject on the left side:
+python watermark_remover_pro.py -i input.mp4 -o output_916.mp4 --pan-x 0.2
+
+# Corner watermark removal with 8% safe zoom:
+python watermark_remover_pro.py -i input.mp4 -o output_916.mp4 --zoom 1.08 --wm 0.7 0.0 1.0 0.1
 ```
-
-FFmpeg core files (`ffmpeg-core.js` and `ffmpeg-core.wasm`) are bundled and loaded locally from `/public/ffmpeg/` with an automatic CDN fallback, guaranteeing fast load times and zero CORS hurdles.
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **Framework**: [Next.js 14](https://nextjs.org/) (App Router, React 18, TypeScript)
-- **Styling**: [Tailwind CSS](https://tailwindcss.com/)
-- **Processing Engine**: [@ffmpeg/ffmpeg](https://ffmpegwasm.netlify.app/) (WebAssembly FFmpeg 0.12)
-- **Deployment Target**: [Vercel](https://vercel.com/)
+- **Framework**: Next.js 14 (App Router, React 18, TypeScript)
+- **Styling**: Tailwind CSS (Dark Glassmorphic UI)
+- **Web Engine**: @ffmpeg/ffmpeg (WebAssembly 0.12)
+- **Local Engine**: Python 3 + OpenCV (Navier-Stokes & Lanczos resampling)
