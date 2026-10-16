@@ -26,8 +26,24 @@ if hasattr(sys.stderr, 'reconfigure'):
 def compute_alpha_map_from_video(cap, cx1, cy1, cx2, cy2):
     """
     Extracts the isolated alpha map of the semi-transparent Gemini watermark.
-    Uses edge background subtraction and morphological feathered dilation.
+    Uses pre-calibrated least-squares alpha asset if present, or edge background subtraction.
     """
+    cw = cx2 - cx1
+    ch = cy2 - cy1
+    
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    alpha_file = os.path.join(script_dir, 'least_squares_alpha_40.png')
+    if os.path.exists(alpha_file):
+        raw = cv2.imread(alpha_file, cv2.IMREAD_GRAYSCALE)
+        if raw is not None:
+            if raw.shape != (ch, cw):
+                raw = cv2.resize(raw, (cw, ch), interpolation=cv2.INTER_LANCZOS4)
+            alpha_map = (raw.astype(np.float32) / 255.0) * 0.82
+            # Binary mask for feathering transition
+            binary = (alpha_map > 0.05).astype(np.float32)
+            feathered = cv2.GaussianBlur(binary, (3, 3), 0.5)
+            return alpha_map[:, :, np.newaxis], feathered, 245.0
+
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     pos = cap.get(cv2.CAP_PROP_POS_FRAMES)
     
@@ -106,8 +122,8 @@ def convert_to_916_with_black_borders(
     if gemini_preset:
         print("  [Gemini] AI Watermark Killer: ACTIVE (Zero Blur Guarantee)")
         if gemini_strategy == "deblend":
-            # Feathered alpha deblending directly over bottom right
-            watermark_box = (0.70, 0.82, 0.99, 0.99)
+            # Feathered alpha deblending directly over Gemini star
+            watermark_box = (0.8856, 0.7908, 0.9328, 0.8745)
             method = "deblend"
             print("  [Gemini] Strategy: Feathered Alpha Deblending (Restores underlying pixels mathematically)")
         elif gemini_strategy == "merge":

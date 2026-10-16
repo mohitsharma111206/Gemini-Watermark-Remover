@@ -34,7 +34,7 @@ interface VideoInfo {
 // Presets
 // ────────────────────────────────────────────────
 const PRESETS: Record<string, { label: string; icon: string; rect: { x: number; y: number; w: number; h: number } }> = {
-  'gemini':        { label: 'Gemini (Bottom-R)', icon: '✨', rect: { x: 0.70, y: 0.82, w: 0.29, h: 0.17 } },
+  'gemini':        { label: 'Gemini (Bottom-R)', icon: '✨', rect: { x: 0.87, y: 0.77, w: 0.08, h: 0.11 } },
   'bottom-right':  { label: 'Bottom Right',      icon: '↘', rect: { x: 0.72, y: 0.83, w: 0.27, h: 0.16 } },
   'bottom-left':   { label: 'Bottom Left',       icon: '↙', rect: { x: 0.01, y: 0.83, w: 0.27, h: 0.16 } },
   'top-right':     { label: 'Top Right',         icon: '↗', rect: { x: 0.72, y: 0.01, w: 0.27, h: 0.14 } },
@@ -160,15 +160,15 @@ export default function Home() {
     setTopBorderCover(0);
     setBottomBorderCover(0);
 
-    // Auto-add Gemini watermark box
+    // Auto-add Gemini watermark box (exact calibrated position)
     setWatermarkRects([
       {
         id: 'gemini-default',
         label: '✨ Gemini Watermark (Bottom-R)',
-        x: 0.70,
-        y: 0.82,
-        w: 0.29,
-        h: 0.17,
+        x: 0.87,
+        y: 0.77,
+        w: 0.08,
+        h: 0.11,
       }
     ]);
 
