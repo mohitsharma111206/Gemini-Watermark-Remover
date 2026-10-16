@@ -118,14 +118,14 @@ HTML_CONTENT = """<!DOCTYPE html>
             Gemini Video Watermark Remover Pro
           </span>
           <span class="ml-2 text-xs font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            Precision Inpaint Engine
+            9:16 & 16:9 Smart Engine
           </span>
         </div>
       </div>
       <div class="flex items-center gap-2">
         <button id="quickTestCurrent" class="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-pink-500/10 hover:bg-pink-500/20 text-pink-300 border border-pink-500/30 transition">
           <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-pink-400"></i>
-          <span>Reload My Uploaded Video</span>
+          <span>Reload Last Video</span>
         </button>
       </div>
     </div>
@@ -137,7 +137,7 @@ HTML_CONTENT = """<!DOCTYPE html>
         100% Guaranteed Watermark Removal
       </h1>
       <p class="text-slate-400 text-sm max-w-xl mx-auto">
-        Automatically locates the Gemini diamond watermark and seamlessly restores original underlying scene texture with zero blur.
+        Supports both <strong>9:16 Portrait</strong> (Shorts/Reels) and <strong>16:9 Landscape</strong> Gemini & Veo videos with auto-calibrated positioning.
       </p>
     </div>
 
@@ -157,7 +157,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             <div id="uploadPlaceholder">
               <i data-lucide="film" class="w-8 h-8 text-pink-400/80 mx-auto mb-2"></i>
               <p class="text-xs font-semibold text-slate-200">Click or drop video file</p>
-              <p class="text-[11px] text-slate-500">MP4, MOV, WebM</p>
+              <p class="text-[11px] text-slate-500">MP4, MOV, WebM (Any aspect ratio)</p>
             </div>
             <div id="fileInfo" class="hidden flex items-center justify-between text-left bg-slate-900/80 p-2.5 rounded-lg border border-white/10">
               <div class="truncate mr-2">
@@ -173,15 +173,39 @@ HTML_CONTENT = """<!DOCTYPE html>
 
         <!-- Watermark Target Controls -->
         <div class="glass-card rounded-2xl p-6 space-y-4">
-          <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-            <i data-lucide="crosshair" class="w-4 h-4 text-blue-400"></i>
-            2. Watermark Targeting
-          </h2>
+          <div class="flex items-center justify-between">
+            <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+              <i data-lucide="crosshair" class="w-4 h-4 text-blue-400"></i>
+              2. Watermark Targeting
+            </h2>
+            <span id="detectedFormatBadge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20">
+              Auto: 16:9
+            </span>
+          </div>
 
-          <div class="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-xs text-blue-200 flex items-start gap-2">
-            <i data-lucide="info" class="w-4 h-4 text-blue-400 shrink-0 mt-0.5"></i>
+          <!-- Quick Aspect Ratio Presets -->
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <button type="button" id="presetPortrait" class="p-2.5 rounded-xl border border-white/10 hover:border-pink-500/50 bg-white/5 hover:bg-pink-500/10 text-left transition flex items-center gap-2">
+              <span class="text-lg">📱</span>
+              <div>
+                <div class="font-bold text-white text-[11px]">9:16 Portrait</div>
+                <div class="text-[10px] text-slate-400">Shorts / Reels</div>
+              </div>
+            </button>
+
+            <button type="button" id="presetLandscape" class="p-2.5 rounded-xl border border-white/10 hover:border-blue-500/50 bg-white/5 hover:bg-blue-500/10 text-left transition flex items-center gap-2">
+              <span class="text-lg">💻</span>
+              <div>
+                <div class="font-bold text-white text-[11px]">16:9 Landscape</div>
+                <div class="text-[10px] text-slate-400">Standard / YouTube</div>
+              </div>
+            </button>
+          </div>
+
+          <div class="p-2.5 bg-blue-500/10 border border-blue-500/20 rounded-xl text-[11px] text-blue-200 flex items-start gap-2">
+            <i data-lucide="mouse-pointer-click" class="w-4 h-4 text-blue-400 shrink-0 mt-0.5"></i>
             <div>
-              <span class="font-bold">Interactive Targeting:</span> Click anywhere on the video preview on the right to position the removal box exactly on your watermark!
+              <strong>Click-to-Aim:</strong> Click directly on the watermark in the preview to position the removal box exactly over it!
             </div>
           </div>
 
@@ -202,10 +226,10 @@ HTML_CONTENT = """<!DOCTYPE html>
               <input type="number" id="boxSize" value="44" class="glass-input w-full px-3 py-2 rounded-lg font-mono text-white">
             </div>
             <div>
-              <label class="text-slate-400 block mb-1 font-semibold">Output Ratio</label>
+              <label class="text-slate-400 block mb-1 font-semibold">Output Format</label>
               <select id="ratioSelect" class="glass-input w-full px-2 py-2 rounded-lg text-xs text-white">
-                <option value="original">Keep Original (e.g. 16:9)</option>
-                <option value="portrait916">9:16 Shorts/Reels Canvas</option>
+                <option value="original">Keep Original Ratio (Recommended)</option>
+                <option value="portrait916">Letterbox to 9:16 Canvas</option>
               </select>
             </div>
           </div>
@@ -252,8 +276,8 @@ HTML_CONTENT = """<!DOCTYPE html>
             </div>
           </div>
 
-          <!-- Video display container -->
-          <div id="videoContainer" class="relative rounded-xl overflow-hidden bg-black aspect-video flex items-center justify-center border border-white/10 cursor-crosshair">
+          <!-- Adaptive Video Container (dynamically scales to 9:16 or 16:9) -->
+          <div id="videoContainer" class="relative rounded-xl overflow-hidden bg-black flex items-center justify-center border border-white/10 cursor-crosshair mx-auto transition-all" style="min-height: 380px; max-height: 600px;">
             <div id="playerPlaceholder" class="text-center p-8">
               <i data-lucide="film" class="w-8 h-8 text-slate-600 mx-auto mb-2"></i>
               <p class="text-xs text-slate-400 font-medium">Click on video to reposition watermark box</p>
@@ -291,6 +315,10 @@ HTML_CONTENT = """<!DOCTYPE html>
     const clearFile = document.getElementById('clearFile');
     const startBtn = document.getElementById('startBtn');
     const quickTestCurrent = document.getElementById('quickTestCurrent');
+
+    const detectedFormatBadge = document.getElementById('detectedFormatBadge');
+    const presetPortrait = document.getElementById('presetPortrait');
+    const presetLandscape = document.getElementById('presetLandscape');
 
     const coordX = document.getElementById('coordX');
     const coordY = document.getElementById('coordY');
@@ -337,6 +365,62 @@ HTML_CONTENT = """<!DOCTYPE html>
       if (e.target.files.length) loadVideoFile(e.target.files[0]);
     });
 
+    function applyPortraitPreset() {
+      if (videoNaturalH > videoNaturalW) {
+        // Native 9:16 video
+        if (videoNaturalW === 720 && videoNaturalH === 1280) {
+          coordX.value = 624;
+          coordY.value = 1184;
+          boxSize.value = 48;
+        } else if (videoNaturalW === 1080 && videoNaturalH === 1920) {
+          coordX.value = 945;
+          coordY.value = 1780;
+          boxSize.value = 64;
+        } else {
+          coordX.value = Math.round(videoNaturalW * 0.867);
+          coordY.value = Math.round(videoNaturalH * 0.925);
+          boxSize.value = Math.max(36, Math.min(80, Math.round(videoNaturalW * 0.065)));
+        }
+      } else {
+        // Landscape video targeted at portrait coordinates
+        coordX.value = Math.round(videoNaturalW * 0.867);
+        coordY.value = Math.round(videoNaturalH * 0.925);
+        boxSize.value = Math.max(36, Math.min(80, Math.round(videoNaturalH * 0.08)));
+      }
+      updateTargetBox();
+    }
+
+    function applyLandscapePreset() {
+      if (videoNaturalW === 848 && videoNaturalH === 478) {
+        coordX.value = 768;
+        coordY.value = 398;
+        boxSize.value = 44;
+      } else if (videoNaturalW === 1280 && videoNaturalH === 720) {
+        coordX.value = 1160;
+        coordY.value = 600;
+        boxSize.value = 48;
+      } else if (videoNaturalW === 1920 && videoNaturalH === 1080) {
+        coordX.value = 1740;
+        coordY.value = 900;
+        boxSize.value = 64;
+      } else {
+        coordX.value = Math.round(videoNaturalW * 0.905);
+        coordY.value = Math.round(videoNaturalH * 0.832);
+        boxSize.value = Math.max(36, Math.min(80, Math.round(videoNaturalH * 0.085)));
+      }
+      updateTargetBox();
+    }
+
+    presetPortrait.addEventListener('click', () => {
+      applyPortraitPreset();
+      detectedFormatBadge.textContent = 'Mode: 9:16 Portrait';
+    });
+
+    presetLandscape.addEventListener('click', () => {
+      applyLandscapePreset();
+      detectedFormatBadge.textContent = 'Mode: 16:9 Landscape';
+    });
+
     function loadVideoFile(file) {
       currentFile = file;
       fileName.textContent = file.name;
@@ -356,18 +440,18 @@ HTML_CONTENT = """<!DOCTYPE html>
         videoNaturalW = originalVideo.videoWidth;
         videoNaturalH = originalVideo.videoHeight;
         
-        // Auto-detect watermark position if 848x478 or 16:9
-        if (videoNaturalW === 848 && videoNaturalH === 478) {
-          coordX.value = 768;
-          coordY.value = 398;
-          boxSize.value = 44;
+        // Adapt container shape so portrait isn't squished
+        if (videoNaturalH > videoNaturalW) {
+          // 9:16 Portrait
+          videoContainer.style.aspectRatio = '9/16';
+          detectedFormatBadge.textContent = `Auto: 9:16 (${videoNaturalW}x${videoNaturalH})`;
+          applyPortraitPreset();
         } else {
-          // Standard bottom right
-          coordX.value = Math.round(videoNaturalW * 0.905);
-          coordY.value = Math.round(videoNaturalH * 0.832);
-          boxSize.value = Math.max(36, Math.min(96, Math.round(Math.min(videoNaturalW, videoNaturalH) * 0.08)));
+          // 16:9 Landscape
+          videoContainer.style.aspectRatio = '16/9';
+          detectedFormatBadge.textContent = `Auto: 16:9 (${videoNaturalW}x${videoNaturalH})`;
+          applyLandscapePreset();
         }
-        updateTargetBox();
       };
     }
 
@@ -385,6 +469,7 @@ HTML_CONTENT = """<!DOCTYPE html>
 
         coordX.value = mappedX;
         coordY.value = mappedY;
+        detectedFormatBadge.textContent = 'Custom Position';
         updateTargetBox();
       }
     });
@@ -417,6 +502,10 @@ HTML_CONTENT = """<!DOCTYPE html>
 
     window.addEventListener('resize', updateTargetBox);
 
+    window.addEventListener('DOMContentLoaded', () => {
+      quickTestCurrent.click();
+    });
+
     // Start Cleaning Process
     startBtn.addEventListener('click', async () => {
       if (!currentFile) {
@@ -447,7 +536,6 @@ HTML_CONTENT = """<!DOCTYPE html>
         const data = await res.json();
         const jobId = data.job_id;
 
-        // Try WebSocket first, fall back to HTTP polling (for Vercel/serverless)
         startProgressTracking(jobId);
 
       } catch (err) {
@@ -459,7 +547,6 @@ HTML_CONTENT = """<!DOCTYPE html>
     function startProgressTracking(jobId) {
       let isCompleted = false;
 
-      // HTTP Polling fallback function (works everywhere, including Vercel)
       const pollInterval = setInterval(async () => {
         if (isCompleted) {
           clearInterval(pollInterval);
@@ -480,7 +567,6 @@ HTML_CONTENT = """<!DOCTYPE html>
         }
       }, 500);
 
-      // Also attempt WebSocket for real-time local speed
       try {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const ws = new WebSocket(`${protocol}//${window.location.host}/ws/${jobId}`);
