@@ -35,3 +35,23 @@ next-env.d.ts
 
 # generated ffmpeg binaries (copied on postinstall)
 /public/ffmpeg/
+
+# Local desktop binaries & python engine
+/bin/
+/uploads/
+/outputs/
+/gemini-watermark-and-synthid-remover/
+*.mp4
+*.py
+__pycache__/
+*.bat
+user_frame*.png
+corner.png
+boxes_crop.png
+diamond_*.png
+box_*.png
+test_*.png
+clean_*.png
+full_frame_*.png
+res_*.png
+inpaint_*.png
