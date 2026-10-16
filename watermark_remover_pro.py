@@ -3,10 +3,11 @@
 Clean9:16 — Pro Video Watermark Remover & 9:16 Converter (Python Engine)
 ========================================================================
 Supports:
-1. No-Crop 9:16 Conversion with Black Borders (Top & Bottom Letterbox)
-2. One-Click Gemini AI Video Watermark Killer (0% Blur Guarantee)
-3. Zero-Blur Dynamic Texture Cloning & Letterbox Merging
-4. Audio preservation in synchronized AAC / stream copy
+1. Feathered Alpha Deblending (The exact mathematical image deblender applied to video frames)
+2. Seamless Black Letterbox Merging (0% Blur Guarantee for 9:16)
+3. Dynamic Video Texture Cloning (Zero Blur)
+4. Full uncropped 16:9 to 9:16 portrait formatting with black borders
+5. Audio preservation
 """
 
 import cv2
@@ -22,6 +23,44 @@ if hasattr(sys.stdout, 'reconfigure'):
 if hasattr(sys.stderr, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
+def compute_alpha_map_from_video(cap, cx1, cy1, cx2, cy2):
+    """
+    Extracts the isolated alpha map of the semi-transparent Gemini watermark.
+    Uses edge background subtraction and morphological feathered dilation.
+    """
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    pos = cap.get(cv2.CAP_PROP_POS_FRAMES)
+    
+    # Read first frame as reference
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+    ret, frame = cap.read()
+    cap.set(cv2.CAP_PROP_POS_FRAMES, pos)
+    
+    if not ret:
+        return None, None, 240.0
+
+    crop = frame[cy1:cy2, cx1:cx2].astype(np.float32)
+    bg = np.zeros_like(crop)
+    for c in range(3):
+        border = np.concatenate([
+            crop[:10, :, c].flatten(),
+            crop[-10:, :, c].flatten(),
+            crop[:, :10, c].flatten()
+        ])
+        bg[:, :, c] = np.median(border)
+
+    diff = np.maximum(0, crop - bg)
+    gray_diff = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+
+    binary_star = (gray_diff > 18).astype(np.float32)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    dilated_star = cv2.dilate(binary_star, kernel, iterations=1)
+    feathered_mask = cv2.GaussianBlur(dilated_star, (5, 5), 1.2)
+
+    W_val = 240.0
+    alpha_map = np.clip(diff / W_val, 0, 0.95) * feathered_mask[:, :, np.newaxis]
+    return alpha_map, feathered_mask, W_val
+
 def convert_to_916_with_black_borders(
     input_path: str,
     output_path: str,
@@ -29,9 +68,9 @@ def convert_to_916_with_black_borders(
     top_border_cover: int = 0,         # pixels to extend top black border down
     bottom_border_cover: int = 0,      # pixels to extend bottom black border up
     vertical_align: str = "center",    # "center", "top", "bottom"
-    method: str = "merge",             # "merge", "clone", "inpaint"
+    method: str = "deblend",           # "deblend", "merge", "clone", "inpaint"
     gemini_preset: bool = False,       # Auto 1-click Gemini watermark killer
-    gemini_strategy: str = "merge",    # "merge", "clone", "corner"
+    gemini_strategy: str = "deblend",  # "deblend", "merge", "clone", "corner"
 ):
     print(f"[Clean9:16] Input Video: {input_path}")
     cap = cv2.VideoCapture(input_path)
@@ -45,7 +84,7 @@ def convert_to_916_with_black_borders(
 
     print(f"  Source: {src_w}x{src_h} @ {fps:.1f} fps ({total_frames} frames)")
 
-    # 1. Target 9:16 portrait canvas (1080x1920)
+    # Target 9:16 portrait canvas (1080x1920)
     target_w, target_h = 1080, 1920
     scale = min(target_w / src_w, target_h / src_h)
     fit_w = int(round(src_w * scale))
@@ -66,15 +105,18 @@ def convert_to_916_with_black_borders(
     # Handle Gemini AI Video preset
     if gemini_preset:
         print("  [Gemini] AI Watermark Killer: ACTIVE (Zero Blur Guarantee)")
-        # Gemini watermark in bottom right corner of 16:9 video
-        if gemini_strategy == "merge":
-            bottom_border_cover = max(bottom_border_cover, 55)
+        if gemini_strategy == "deblend":
+            # Feathered alpha deblending directly over bottom right
+            watermark_box = (0.70, 0.82, 0.99, 0.99)
+            method = "deblend"
+            print("  [Gemini] Strategy: Feathered Alpha Deblending (Restores underlying pixels mathematically)")
+        elif gemini_strategy == "merge":
+            bottom_border_cover = max(bottom_border_cover, 80)
             print("  [Gemini] Strategy: Seamless Bottom Letterbox Merge (0% Blur)")
         elif gemini_strategy == "corner":
             print("  [Gemini] Strategy: Corner Black Patch (0% Blur)")
         elif gemini_strategy == "clone":
-            # Rect relative coordinates: bottom right 18% width, 11% height
-            watermark_box = (0.80, 0.88, 0.99, 0.99)
+            watermark_box = (0.72, 0.83, 0.99, 0.99)
             method = "clone"
             print("  [Gemini] Strategy: Moving Video Texture Clone (0% Blur)")
 
@@ -87,6 +129,15 @@ def convert_to_916_with_black_borders(
             y1, y2 = int(y1 * src_h), int(y2 * src_h)
         wm_pixels = (max(0, int(x1)), max(0, int(y1)), min(src_w, int(x2)), min(src_h, int(y2)))
         print(f"  Watermark Coordinates on Source: {wm_pixels} (Method: {method})")
+
+    # Prepare alpha map if using mathematical deblending
+    alpha_map = None
+    feathered_mask = None
+    W_val = 240.0
+    if wm_pixels and method == "deblend":
+        x1, y1, x2, y2 = wm_pixels
+        alpha_map, feathered_mask, W_val = compute_alpha_map_from_video(cap, x1, y1, x2, y2)
+        print("  Computed isolated alpha map for feathered deblending.")
 
     # Temporary file for raw video frames
     temp_raw = output_path + ".temp.mp4"
@@ -105,19 +156,25 @@ def convert_to_916_with_black_borders(
             bw = x2 - x1
             bh = y2 - y1
 
-            if method == "clone":
+            if method == "deblend" and alpha_map is not None:
+                # EXACT FEATHERED ALPHA DEBLENDING FROM USER SCRIPT
+                crop_bgr = frame[y1:y2, x1:x2].astype(np.float32)
+                rec = (crop_bgr - alpha_map * W_val) / np.maximum(1.0 - alpha_map, 0.05)
+                rec_blended = crop_bgr * (1.0 - feathered_mask[:, :, np.newaxis]) + rec * feathered_mask[:, :, np.newaxis]
+                frame[y1:y2, x1:x2] = np.clip(rec_blended, 0, 255).astype(np.uint8)
+
+            elif method == "clone":
                 # Dynamic Texture Clone: Copy moving background from directly above logo
                 clone_y1 = max(0, y1 - bh)
                 clone_y2 = y1
                 if clone_y2 > clone_y1 and (clone_y2 - clone_y1) == bh:
                     frame[y1:y2, x1:x2] = frame[clone_y1:clone_y2, x1:x2]
                 else:
-                    # Clone from left
                     clone_x1 = max(0, x1 - bw)
                     clone_x2 = x1
                     frame[y1:y2, x1:x2] = frame[y1:y2, clone_x1:clone_x2]
+
             elif method == "inpaint":
-                # Legacy inpaint with film grain
                 mask = np.zeros(frame.shape[:2], dtype=np.uint8)
                 mask[y1:y2, x1:x2] = 255
                 frame = cv2.inpaint(frame, mask, 5, cv2.INPAINT_NS)
@@ -136,13 +193,12 @@ def convert_to_916_with_black_borders(
         if top_border_cover > 0:
             canvas[0:fit_y + top_border_cover, :] = 0
         if bottom_border_cover > 0:
-            # Merges seamlessly with bottom letterbox
             canvas[fit_y + fit_h - bottom_border_cover:target_h, :] = 0
 
         # Step 5: Gemini corner patch (if corner strategy selected)
         if gemini_preset and gemini_strategy == "corner":
-            corner_w = int(0.20 * fit_w)
-            corner_h = int(0.12 * fit_h)
+            corner_w = int(0.28 * fit_w)
+            corner_h = int(0.15 * fit_h)
             canvas[fit_y + fit_h - corner_h:target_h, target_w - corner_w:target_w] = 0
 
         out.write(canvas)
@@ -185,15 +241,15 @@ def convert_to_916_with_black_borders(
     print(f"[Clean9:16] SUCCESS! Exported 9:16 Video to: {output_path}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Clean9:16 — No-Crop Black Borders & Zero-Blur Watermark Remover")
+    parser = argparse.ArgumentParser(description="Clean9:16 — Feathered Alpha Deblending & 9:16 Converter")
     parser.add_argument("-i", "--input", required=True, help="Path to input video")
-    parser.add_argument("-o", "--output", default="output_916_black_borders.mp4", help="Path to output video")
-    parser.add_argument("--gemini", action="store_true", help="✨ 1-Click Gemini AI Watermark Killer (Zero Blur)")
-    parser.add_argument("--gemini-strategy", choices=["merge", "clone", "corner"], default="merge", help="Gemini removal strategy")
+    parser.add_argument("-o", "--output", default="output_916_clean.mp4", help="Path to output video")
+    parser.add_argument("--gemini", action="store_true", help="1-Click Gemini AI Watermark Deblender (Zero Blur)")
+    parser.add_argument("--gemini-strategy", choices=["deblend", "merge", "clone", "corner"], default="deblend", help="Gemini removal strategy")
     parser.add_argument("--align", choices=["center", "top", "bottom"], default="center", help="Vertical alignment in 9:16")
     parser.add_argument("--top-cover", type=int, default=0, help="Extend top black border down (px)")
     parser.add_argument("--bottom-cover", type=int, default=0, help="Extend bottom black border up (px)")
-    parser.add_argument("--method", choices=["merge", "clone", "inpaint"], default="merge", help="Watermark removal method")
+    parser.add_argument("--method", choices=["deblend", "merge", "clone", "inpaint"], default="deblend", help="Watermark removal method")
     parser.add_argument("--wm", nargs=4, type=float, help="Custom watermark rect: x1 y1 x2 y2 (0.0 to 1.0)")
 
     args = parser.parse_args()
