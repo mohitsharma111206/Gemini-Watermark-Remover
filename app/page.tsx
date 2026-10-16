@@ -113,10 +113,15 @@ export default function Home() {
     setVideoFile(file);
     const url = URL.createObjectURL(file);
     setVideoUrl(url);
+    // Initialize video info with defaults, updated when preview video loads
     setVideoInfo({
-      width: 0, height: 0, duration: 0,
-      name: file.name, size: file.size,
+      width: 1280,
+      height: 720,
+      duration: 0,
+      name: file.name,
+      size: file.size,
     });
+    setStep('select');
   }, []);
 
   const onVideoDrop = useCallback((e: React.DragEvent) => {
@@ -126,16 +131,16 @@ export default function Home() {
     if (file) handleFile(file);
   }, [handleFile]);
 
-  const onVideoLoad = useCallback(() => {
-    const vid = videoRef.current;
-    if (!vid) return;
-    setVideoInfo(prev => prev ? {
-      ...prev,
-      width: vid.videoWidth,
-      height: vid.videoHeight,
-      duration: vid.duration,
-    } : null);
-    setStep('select');
+  const onVideoMetadata = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const vid = e.currentTarget;
+    if (vid && vid.videoWidth && vid.videoHeight) {
+      setVideoInfo(prev => prev ? {
+        ...prev,
+        width: vid.videoWidth,
+        height: vid.videoHeight,
+        duration: vid.duration || 0,
+      } : null);
+    }
   }, []);
 
   // ────────────────────────────────────────────
@@ -280,23 +285,31 @@ export default function Home() {
       // Try loading from local public folder first for faster loading & same-origin COEP compliance, fallback to CDN
       try {
         await ffmpeg.load({
-          coreURL: await toBlobURL('/ffmpeg/ffmpeg-core.js', 'text/javascript'),
-          wasmURL: await toBlobURL('/ffmpeg/ffmpeg-core.wasm', 'application/wasm'),
+          coreURL: await toBlobURL('/ffmpeg/umd/ffmpeg-core.js', 'text/javascript'),
+          wasmURL: await toBlobURL('/ffmpeg/umd/ffmpeg-core.wasm', 'application/wasm'),
         });
-      } catch (localErr) {
-        console.warn('Local FFmpeg load failed, trying unpkg CDN:', localErr);
-        const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
-        await ffmpeg.load({
-          coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-          wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-        });
+      } catch (errUmd) {
+        console.warn('Local UMD load failed, trying local root:', errUmd);
+        try {
+          await ffmpeg.load({
+            coreURL: await toBlobURL('/ffmpeg/ffmpeg-core.js', 'text/javascript'),
+            wasmURL: await toBlobURL('/ffmpeg/ffmpeg-core.wasm', 'application/wasm'),
+          });
+        } catch (localErr) {
+          console.warn('Local FFmpeg load failed, trying unpkg CDN:', localErr);
+          const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+          await ffmpeg.load({
+            coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+            wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+          });
+        }
       }
 
       setFfmpegLoaded(true);
       setStatusText('FFmpeg loaded successfully!');
     } catch (err) {
       console.error('FFmpeg load error:', err);
-      setError('Failed to load FFmpeg. Please check your browser supports WebAssembly and try again.');
+      setError(`Failed to load FFmpeg engine: ${err instanceof Error ? err.message : String(err)}. Please ensure your browser supports WebAssembly.`);
       setFfmpegLoading(false);
       throw err;
     }
@@ -314,26 +327,32 @@ export default function Home() {
     setProcessingStartTime(Date.now());
     setStatusText('Preparing video...');
 
+    const ext = videoFile.name.split('.').pop()?.toLowerCase() || 'mp4';
+    const inputFilename = `input.${ext}`;
+
     try {
       // Write input file to FFmpeg virtual filesystem
+      setStatusText('Loading video into memory...');
       const inputData = await fetchFile(videoFile);
-      await ffmpeg.writeFile('input.mp4', inputData);
+      await ffmpeg.writeFile(inputFilename, inputData);
 
       // Build the FFmpeg filter chain
       const filters: string[] = [];
 
       // 1) Watermark removal using delogo filter
       if (watermarkRects.length > 0 && videoInfo) {
+        const vidW = videoInfo.width || 1280;
+        const vidH = videoInfo.height || 720;
         watermarkRects.forEach((r) => {
-          const px = Math.round(r.x * videoInfo.width);
-          const py = Math.round(r.y * videoInfo.height);
-          const pw = Math.round(r.w * videoInfo.width);
-          const ph = Math.round(r.h * videoInfo.height);
-          // Clamp values
-          const cx = Math.max(1, px);
-          const cy = Math.max(1, py);
-          const cw = Math.min(pw, videoInfo.width - cx - 1);
-          const ch = Math.min(ph, videoInfo.height - cy - 1);
+          const px = Math.round(r.x * vidW);
+          const py = Math.round(r.y * vidH);
+          const pw = Math.round(r.w * vidW);
+          const ph = Math.round(r.h * vidH);
+          // Clamp values carefully so delogo never overflows frame boundary
+          const cx = Math.max(1, Math.min(px, vidW - 4));
+          const cy = Math.max(1, Math.min(py, vidH - 4));
+          const cw = Math.max(2, Math.min(pw, vidW - cx - 1));
+          const ch = Math.max(2, Math.min(ph, vidH - cy - 1));
           if (cw > 2 && ch > 2) {
             filters.push(`delogo=x=${cx}:y=${cy}:w=${cw}:h=${ch}`);
           }
@@ -342,8 +361,8 @@ export default function Home() {
 
       // 2) 9:16 conversion
       if (videoInfo) {
-        const srcW = videoInfo.width;
-        const srcH = videoInfo.height;
+        const srcW = videoInfo.width || 1280;
+        const srcH = videoInfo.height || 720;
         const targetRatio = 9 / 16;
         const currentRatio = srcW / srcH;
 
@@ -364,11 +383,11 @@ export default function Home() {
           filters.push('scale=1080:1920');
         } else {
           // blur mode: fit video inside 9:16 with blurred background
-          // This requires a complex filter graph, handled separately below
+          // Handled via filterComplex below
         }
       }
 
-      setStatusText('Processing video...');
+      setStatusText('Processing video with FFmpeg...');
 
       if (cropMode === 'blur' && videoInfo) {
         // Complex filter graph for blur fill
@@ -383,12 +402,12 @@ export default function Home() {
         ].join(';');
 
         await ffmpeg.exec([
-          '-i', 'input.mp4',
+          '-i', inputFilename,
           '-filter_complex', filterComplex,
           '-map', '[out]',
           '-map', '0:a?',
           '-c:v', 'libx264',
-          '-preset', 'fast',
+          '-preset', 'ultrafast',
           '-crf', '23',
           '-c:a', 'aac',
           '-b:a', '128k',
@@ -401,10 +420,10 @@ export default function Home() {
         const vf = filters.length > 0 ? filters.join(',') : 'scale=1080:1920';
 
         await ffmpeg.exec([
-          '-i', 'input.mp4',
+          '-i', inputFilename,
           '-vf', vf,
           '-c:v', 'libx264',
-          '-preset', 'fast',
+          '-preset', 'ultrafast',
           '-crf', '23',
           '-c:a', 'aac',
           '-b:a', '128k',
@@ -415,7 +434,7 @@ export default function Home() {
       }
 
       // Read output
-      setStatusText('Finalizing...');
+      setStatusText('Finalizing video...');
       const outputData = await ffmpeg.readFile('output.mp4');
       const uint8 = new Uint8Array(outputData as Uint8Array);
       const blob = new Blob([uint8.buffer], { type: 'video/mp4' });
@@ -429,7 +448,7 @@ export default function Home() {
 
       // Cleanup FFmpeg filesystem
       try {
-        await ffmpeg.deleteFile('input.mp4');
+        await ffmpeg.deleteFile(inputFilename);
         await ffmpeg.deleteFile('output.mp4');
       } catch { /* ignore cleanup errors */ }
 
@@ -629,17 +648,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Hidden video for metadata loading */}
-        {videoUrl && step === 'upload' && (
-          <video
-            ref={videoRef}
-            src={videoUrl}
-            className="hidden"
-            onLoadedMetadata={onVideoLoad}
-            preload="metadata"
-          />
-        )}
-
         {/* ──── STEP: SELECT WATERMARK ──── */}
         {step === 'select' && videoInfo && (
           <div className="animate-fade-in">
@@ -668,7 +676,9 @@ export default function Home() {
                       src={videoUrl}
                       className="w-full h-full object-contain"
                       controls
+                      playsInline
                       preload="auto"
+                      onLoadedMetadata={onVideoMetadata}
                     />
                     <canvas
                       ref={canvasRef}

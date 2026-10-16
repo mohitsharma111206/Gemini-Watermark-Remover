@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "postinstall": "node -e \"const fs=require('fs'); if(fs.existsSync('./node_modules/@ffmpeg/core/dist/esm')){ fs.mkdirSync('./public/ffmpeg', {recursive: true}); fs.copyFileSync('./node_modules/@ffmpeg/core/dist/esm/ffmpeg-core.js', './public/ffmpeg/ffmpeg-core.js'); fs.copyFileSync('./node_modules/@ffmpeg/core/dist/esm/ffmpeg-core.wasm', './public/ffmpeg/ffmpeg-core.wasm'); console.log('FFmpeg files copied to public/ffmpeg'); }\""
+    "postinstall": "node -e \"const fs=require('fs'); if(fs.existsSync('./node_modules/@ffmpeg/core/dist')){ fs.mkdirSync('./public/ffmpeg/umd', {recursive: true}); fs.mkdirSync('./public/ffmpeg/esm', {recursive: true}); fs.copyFileSync('./node_modules/@ffmpeg/core/dist/umd/ffmpeg-core.js', './public/ffmpeg/ffmpeg-core.js'); fs.copyFileSync('./node_modules/@ffmpeg/core/dist/umd/ffmpeg-core.wasm', './public/ffmpeg/ffmpeg-core.wasm'); fs.copyFileSync('./node_modules/@ffmpeg/core/dist/umd/ffmpeg-core.js', './public/ffmpeg/umd/ffmpeg-core.js'); fs.copyFileSync('./node_modules/@ffmpeg/core/dist/umd/ffmpeg-core.wasm', './public/ffmpeg/umd/ffmpeg-core.wasm'); fs.copyFileSync('./node_modules/@ffmpeg/core/dist/esm/ffmpeg-core.js', './public/ffmpeg/esm/ffmpeg-core.js'); fs.copyFileSync('./node_modules/@ffmpeg/core/dist/esm/ffmpeg-core.wasm', './public/ffmpeg/esm/ffmpeg-core.wasm'); console.log('FFmpeg binaries copied'); }\""
   },
   "dependencies": {
     "@ffmpeg/core": "^0.12.6",
