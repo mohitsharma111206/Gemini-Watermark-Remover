@@ -1,3 +1,12 @@
+---
+title: Gemini Watermark Remover
+emoji: 🎬
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+---
+
 # 🎬 Clean9:16 — Gemini Video Watermark Remover & 9:16 Formatter
 
 A professional tool and web application to:
