@@ -369,23 +369,23 @@ HTML_CONTENT = """<!DOCTYPE html>
       if (videoNaturalH > videoNaturalW) {
         // Native 9:16 video
         if (videoNaturalW === 720 && videoNaturalH === 1280) {
-          coordX.value = 624;
-          coordY.value = 1184;
-          boxSize.value = 48;
+          coordX.value = 599;
+          coordY.value = 1155;
+          boxSize.value = 53;
         } else if (videoNaturalW === 1080 && videoNaturalH === 1920) {
-          coordX.value = 945;
-          coordY.value = 1780;
-          boxSize.value = 64;
+          coordX.value = 899;
+          coordY.value = 1733;
+          boxSize.value = 80;
         } else {
-          coordX.value = Math.round(videoNaturalW * 0.867);
-          coordY.value = Math.round(videoNaturalH * 0.925);
-          boxSize.value = Math.max(36, Math.min(80, Math.round(videoNaturalW * 0.065)));
+          coordX.value = Math.round(videoNaturalW * (599 / 720));
+          coordY.value = Math.round(videoNaturalH * (1155 / 1280));
+          boxSize.value = Math.max(36, Math.min(100, Math.round(videoNaturalW * (53 / 720))));
         }
       } else {
-        // Landscape video targeted at portrait coordinates
-        coordX.value = Math.round(videoNaturalW * 0.867);
-        coordY.value = Math.round(videoNaturalH * 0.925);
-        boxSize.value = Math.max(36, Math.min(80, Math.round(videoNaturalH * 0.08)));
+        // Standard 720x1280 portrait preset
+        coordX.value = 599;
+        coordY.value = 1155;
+        boxSize.value = 53;
       }
       updateTargetBox();
     }
@@ -412,11 +412,13 @@ HTML_CONTENT = """<!DOCTYPE html>
     }
 
     presetPortrait.addEventListener('click', () => {
+      videoContainer.style.aspectRatio = '9/16';
       applyPortraitPreset();
-      detectedFormatBadge.textContent = 'Mode: 9:16 Portrait';
+      detectedFormatBadge.textContent = 'Mode: 9:16 Portrait (599, 1155)';
     });
 
     presetLandscape.addEventListener('click', () => {
+      videoContainer.style.aspectRatio = '16/9';
       applyLandscapePreset();
       detectedFormatBadge.textContent = 'Mode: 16:9 Landscape';
     });
